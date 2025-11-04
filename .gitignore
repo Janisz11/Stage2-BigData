@@ -1,29 +1,83 @@
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.pycache
-*.pylint.d
+# Rust
+/target/
+**/target/
+**/Cargo.lock
+**/*.rs.bk
+*.pdb
 
-venv/
-.env/
-.env.*
-
-.uv/
-.uv-config/
-
+# IDE / Editor
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
+# Docker
+.dockerignore
+
+# Data Layer / Datalake
+**/datalake/
+**/datamarts/
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment / Configuration
+.env
+.env.local
+.env.*.local
+**/.env
+config/local.yml
+secrets.yml
+
+# Logs
 *.log
+logs/
+**/logs/
+*.out
 
-*.tar
-*.env
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
 
-build/
+# Build artifacts
 dist/
-*.egg-info/
+build/
+out/
+
+# Coverage reports
+tarpaulin-report.html
+coverage/
+*.profraw
+
+# Benchmarks
+**/criterion/
+**/benchmarks/results/
+
+# System files
+.fuse_hidden*
+.nfs*
+
+# Project specific
+**/header_*.txt
+**/body_*.txt
+control-module.log
+*.pid
+
+# Dependencies backup
+Cargo.lock.backup
+
+# Local testing
+test_books/
+test_data/

@@ -7,9 +7,10 @@ services:
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --dir /data
-    # restart: unless-stopped
+    networks:
+      - microservices
 
-  db:
+  postgres:
     image: postgres:15
     container_name: postgres_db
     environment:
@@ -25,56 +26,76 @@ services:
       start_period: 0s
       timeout: 1s
     networks:
-      - default
+      - microservices
 
-  tests:
-    build: ./data_layer
-    depends_on:
-      - redis
-      - db
+  ingestion-service:
+    build: ./ingestion-service
+    container_name: ingestion-service
+    ports:
+      - "7001:7001"
     volumes:
-      - ./tests:/app/tests
-      - ./data_layer/datalake:/app/datalake
-    command: pytest tests/ -v --tb=short
-    networks:
-      - default
-    profiles:
-      - ci
-
-  app:
-    build: ./data_layer
-    depends_on:
-      - redis
-      - db
-    volumes:
-      - ./data_layer/datalake:/app/datalake
+      - datalake_data:/app/datalake
     environment:
-      - BACKEND_TYPE=${BACKEND_TYPE:-postgres}
-    command: python -m application.pipeline
-    # restart: unless-stopped
+      - PORT=7001
+      - RUST_LOG=info
     networks:
-      - default
+      - microservices
 
-  benchmark:
-    build: ./data_layer
+  indexing-service:
+    build: ./indexing-service
+    container_name: indexing-service
+    ports:
+      - "7002:7002"
+    volumes:
+      - datalake_data:/app/datalake
+    environment:
+      - PORT=7002
+      - RUST_LOG=info
+      - BACKEND_TYPE=${BACKEND_TYPE:-redis}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://user:password@postgres:5432/datamart_db
     depends_on:
       - redis
-      - db
-    volumes:
-      - ./benchmarks:/app/benchmarks
-      - ./data_layer/datalake:/app/datalake
-    command: pytest benchmarks/ --benchmark-only -v --benchmark-json=/app/benchmark_results.json
+      - postgres
     networks:
-      - default
-    profiles:
-      - benchmark
+      - microservices
+
+  search-service:
+    build: ./search-service
+    container_name: search-service
+    ports:
+      - "7003:7003"
+    environment:
+      - PORT=7003
+      - RUST_LOG=info
+    depends_on:
+      - indexing-service
+    networks:
+      - microservices
+  #
+  # control-module:
+  #   build: ./control-module
+  #   container_name: control-module
+  #   environment:
+  #     - RUST_LOG=info
+  #   depends_on:
+  #     - ingestion-service
+  #     - indexing-service
+  #     - search-service
+  #   networks:
+  #     - microservices
+  #   # Only start when explicitly needed
+  #   profiles:
+  #     - control
 
 volumes:
   redis_data:
     driver: local
   db-data:
     driver: local
+  datalake_data:
+    driver: local
 
 networks:
-  default:
+  microservices:
     driver: bridge
