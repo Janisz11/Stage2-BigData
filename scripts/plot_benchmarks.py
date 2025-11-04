@@ -1,3 +1,4 @@
+import re
 import sys
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -5,8 +6,8 @@ from matplotlib import cm
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-RESULTS_DIR = BASE_DIR / "benchmark_results" / "html_reports"
-PLOTS_DIR = RESULTS_DIR
+HTML_DIR = BASE_DIR / "benchmark_results" / "html_reports"
+PLOTS_DIR = BASE_DIR / "benchmark_results" / "plots"
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 plt.rcParams.update({
@@ -26,32 +27,35 @@ def read_first_table(p: Path) -> pd.DataFrame:
     with open(p, "r", encoding="utf-8") as f:
         return pd.read_html(f, flavor="lxml")[0]
 
-def upsert_block(html_path: Path, block_id: str, html_block: str):
+def clean_html(html_path: Path):
+    if not html_path.exists():
+        return
     s = html_path.read_text(encoding="utf-8")
-    start_tag = f"<!-- PLOT_BLOCK_START:{block_id} -->"
-    end_tag = f"<!-- PLOT_BLOCK_END:{block_id} -->"
-    if start_tag in s and end_tag in s:
-        start = s.index(start_tag)
-        end = s.index(end_tag) + len(end_tag)
-        s = s[:start] + start_tag + "\n" + html_block + "\n" + end_tag + s[end:]
-        html_path.write_text(s, encoding="utf-8")
-        return
-    i = s.lower().rfind("</table>")
-    if i == -1:
-        return
-    injected = s[: i + len("</table>")] + "\n" + start_tag + "\n" + html_block + "\n" + end_tag + "\n" + s[i + len("</table>") :]
-    html_path.write_text(injected, encoding="utf-8")
+    s = re.sub(r"<!-- PLOT_BLOCK_START:.*?-->\s.*?<!-- PLOT_BLOCK_END:.*? -->", "", s, flags=re.S)
+    for img in [
+        "ingestion-service_latency.png",
+        "indexing-service_latency.png",
+        "search-service_latency.png",
+        "workflow_breakdown_stacked.png",
+        "workflow_total_vs_components.png",
+    ]:
+        s = re.sub(rf"<div>.*?<img[^>]*{re.escape(img)}[^>]*>.*?</div>", "", s, flags=re.S|re.I)
+    html_path.write_text(s, encoding="utf-8")
 
-ing_html = RESULTS_DIR / "ingestion-service_container_performance.html"
-idx_html = RESULTS_DIR / "indexing-service_container_performance.html"
-sea_html = RESULTS_DIR / "search-service_container_performance.html"
-wf_html  = RESULTS_DIR / "system_workflow_performance.html"
+ing_html = HTML_DIR / "ingestion-service_container_performance.html"
+idx_html = HTML_DIR / "indexing-service_container_performance.html"
+sea_html = HTML_DIR / "search-service_container_performance.html"
+wf_html  = HTML_DIR / "system_workflow_performance.html"
 
 missing = [p for p in [ing_html, idx_html, sea_html, wf_html] if not p.exists()]
 if missing:
-    print("Brak plików:", ", ".join(str(x) for x in missing)); sys.exit(1)
+    print("Missing:", ", ".join(str(x) for x in missing))
+    sys.exit(1)
 
-def latency_plot(html_file: Path, name: str):
+for h in [ing_html, idx_html, sea_html, wf_html]:
+    clean_html(h)
+
+def latency_plot(html_file: Path, name: str, outfile: Path):
     df = read_first_table(html_file)
     df["Avg Response Time (ms)"] = pd.to_numeric(df["Avg Response Time (ms)"], errors="coerce")
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -66,23 +70,20 @@ def latency_plot(html_file: Path, name: str):
     ax.set_xlabel("Endpoint")
     ax.set_ylabel("Time (ms)")
     for tick in ax.get_xticklabels():
-        tick.set_rotation(30)
-        tick.set_ha("right")
+        tick.set_rotation(30); tick.set_ha("right")
     fig.tight_layout()
-    img_name = f"{name}-service_latency.png"
-    fig.savefig(PLOTS_DIR / img_name)
+    fig.savefig(outfile)
     plt.close(fig)
-    html_block = f"<div><h3>Latency Plot</h3><img src='{img_name}' alt='{name} latency' style='max-width:100%;height:auto;'/></div>"
-    upsert_block(html_file, f"{name.upper()}_LATENCY", html_block)
 
-latency_plot(ing_html, "ingestion")
-latency_plot(idx_html, "indexing")
-latency_plot(sea_html, "search")
+latency_plot(ing_html, "ingestion", PLOTS_DIR / "ingestion-service_latency.png")
+latency_plot(idx_html, "indexing",  PLOTS_DIR / "indexing-service_latency.png")
+latency_plot(sea_html, "search",    PLOTS_DIR / "search-service_latency.png")
 
 wf = read_first_table(wf_html)
 for c in ["Total Time (ms)", "Ingest Time (ms)", "Index Time (ms)", "Search Time (ms)"]:
     wf[c] = pd.to_numeric(wf[c], errors="coerce")
 wf = wf.sort_values("Book ID")
+
 x = range(len(wf))
 ing = wf["Ingest Time (ms)"]
 idx = wf["Index Time (ms)"]
@@ -101,8 +102,7 @@ ymax_stack = float((ing + idx + sea).max()) if len(wf) else 0
 ax1.set_ylim(0, ymax_stack * 1.15 if ymax_stack > 0 else 1)
 ax1.legend()
 fig1.tight_layout()
-wf_break = "workflow_breakdown_stacked.png"
-fig1.savefig(PLOTS_DIR / wf_break)
+fig1.savefig(PLOTS_DIR / "workflow_breakdown_stacked.png")
 plt.close(fig1)
 
 components_sum = ing + idx + sea
@@ -122,16 +122,7 @@ ax2.set_ylabel("Time (ms)")
 ax2.set_xticks(list(x), wf["Book ID"])
 ax2.legend()
 fig2.tight_layout()
-wf_total = "workflow_total_vs_components.png"
-fig2.savefig(PLOTS_DIR / wf_total)
+fig2.savefig(PLOTS_DIR / "workflow_total_vs_components.png")
 plt.close(fig2)
 
-wf_block = (
-    f"<div><h3>Workflow Plots</h3>"
-    f"<div><img src='{wf_break}' alt='workflow breakdown' style='max-width:100%;height:auto;'/></div>"
-    f"<div style='margin-top:12px;'><img src='{wf_total}' alt='workflow total vs sum' style='max-width:100%;height:auto;'/></div>"
-    f"</div>"
-)
-upsert_block(wf_html, "WORKFLOW_PLOTS", wf_block)
-
-print("Plots are ready and saved in png")
+print(f"Saved plots to: {PLOTS_DIR}")
